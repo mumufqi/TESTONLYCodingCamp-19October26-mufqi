@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>To-Do Life Dashboard</title>
+    <script src="js/app.js"></script>
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
@@ -41,7 +42,7 @@
       <section class="card" id="timer-section" aria-label="Pomodoro timer">
         <h2>Focus Timer</h2>
 
-        <div id="timer-display" aria-live="polite" aria-label="Timer countdown">25:00</div>
+        <div id="timer-display" role="timer" aria-live="off" aria-label="Timer countdown">25:00</div>
 
         <div class="timer-controls">
           <button id="timer-start-btn">Start</button>
@@ -54,6 +55,7 @@
           <input
             type="number"
             id="timer-duration-input"
+            step="1"
             min="1"
             max="120"
             placeholder="25"
@@ -129,6 +131,5 @@
       Could not save your changes. Storage may be full.
     </div>
 
-    <script src="js/app.js"></script>
   </body>
 </html>

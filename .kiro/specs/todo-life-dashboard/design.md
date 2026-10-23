@@ -436,7 +436,7 @@ This handles edge cases like private browsing mode with storage disabled or a fu
 
 ### Property 2: Time formatting always produces valid MM:SS or HH:MM AM/PM output
 
-*For any* non-negative integer number of seconds in the range [0, 7199] (0 to 119 minutes 59 seconds), `formatTime(seconds)` should return a string matching the pattern `^\d{2}:\d{2}$` with zero-padded values.
+*For any* non-negative integer number of seconds in the range [0, 7199] (0 to 119 minutes 59 seconds), `formatTime(seconds)` should return a string matching the pattern `^\d{2,3}:\d{2}$` with zero-padded values.
 
 **Validates: Requirements 4.1**
 
@@ -597,9 +597,9 @@ On page load, all Local Storage reads are wrapped in `try/catch` with `JSON.pars
 
 This project uses a dual approach: **unit tests** for specific examples and edge cases, and **property-based tests** for universal behavioral properties.
 
-Because the codebase is pure JavaScript with no build step, tests are written using **[Jest](https://jestjs.io/)** (unit + property framework via `fast-check`) and run with Node.js. Since all business logic functions are plain JS with no DOM dependency, they can be imported directly into the test environment.
+Because the codebase is pure JavaScript with no build step, tests are written using **[Jest](https://jestjs.io/)** (unit + property framework via `fast-check`) and run with Node.js. CommonJS exports expose the actual application functions without starting the dashboard on import. Tests use the real HTML body in jsdom and control time with Jest fake timers.
 
-DOM-dependent behavior (rendering, event handlers) is tested using **jsdom** (included in Jest by default).
+DOM-dependent behavior (rendering, event handlers) is tested using **jsdom** (provided by `jest-environment-jsdom`).
 
 ### Property-Based Testing Library
 
@@ -618,7 +618,7 @@ Unit tests cover specific scenarios that property tests don't naturally reach:
 - **Local Storage failure**: `setItem` throwing shows the error toast
 - **Edit cancel**: Canceling an edit restores the original task text
 - **Timer state machine**: Start → Stop → Reset transitions work correctly
-- **Link open in new tab**: Clicking a link calls `window.open` with `"_blank"`
+- **Link open in new tab**: Rendered links use a normal anchor with the saved URL, `target="_blank"`, and `rel="noopener noreferrer"`
 
 ### Property Test Coverage
 
@@ -643,3 +643,13 @@ Each correctness property (Properties 1–17) maps to one property-based test:
 | 15 | Theme save-load round trip | `fc.constantFrom("light", "dark")` |
 | 16 | Timer duration validation | `fc.integer({ min: -1000, max: 1000 })` |
 | 17 | Timer never goes below zero | any number of tick calls on 0-state timer |
+
+## Implementation updates — 23 October 2026
+
+- The only application script is loaded synchronously in `<head>` before the stylesheet; it applies the saved theme before body parsing. CommonJS imports export functions without automatic startup.
+- The timer calculates remaining milliseconds from a deadline, preserves sub-second pause/resume state, and catches up after delayed callbacks. A complete one-second PCM WAV accompanies a visible completion message, which remains until reset or the next session.
+- Storage loaders validate each record, reject duplicate IDs and unsafe URLs, preserve valid items, and cap loaded links at 20. Returned arrays are snapshots, not live mutable state.
+- URL validation uses the URL parser and requires HTTP(S) and a hostname, exceeding the original prefix-only check.
+- IDs include a per-session sequence as well as timestamp/random components to avoid collisions during rapid additions.
+- All persistence failures, including theme, name, and duration, use the shared toast.
+- Five Jest suites import the actual application exports. All 17 properties run at least 100 cases; DOM tests use the actual index.html body.

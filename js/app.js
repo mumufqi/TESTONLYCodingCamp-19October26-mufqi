@@ -23,16 +23,7 @@ function initTheme() {
 
   document.documentElement.setAttribute('data-theme', savedTheme);
 
-  // The button may not exist in the DOM yet at this point, so we update its
-  // label once the DOM is ready via DOMContentLoaded.
-  document.addEventListener('DOMContentLoaded', function () {
-    _updateThemeButton(savedTheme);
-
-    var btn = document.getElementById('theme-toggle-btn');
-    if (btn) {
-      btn.addEventListener('click', toggleTheme);
-    }
-  });
+  _updateThemeButton(savedTheme);
 }
 
 /**
@@ -48,7 +39,7 @@ function toggleTheme() {
   try {
     localStorage.setItem('dashboard_theme', next);
   } catch (e) {
-    // Storage write failed — theme is still applied visually for this session
+    showStorageError('Could not save your theme. It will only apply to this session.');
   }
 
   _updateThemeButton(next);
@@ -64,8 +55,7 @@ function _updateThemeButton(theme) {
   btn.textContent = theme === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
 }
 
-// Run initTheme immediately — MUST be the first call in this file.
-initTheme();
+// Browser startup is at the end of this file; CommonJS imports have no side effects.
 
 // =============================================================================
 // GREETING MODULE — pure helper functions
@@ -87,7 +77,7 @@ initTheme();
  * @returns {string}
  */
 function getGreeting(hour) {
-  if (typeof hour !== 'number' || !Number.isFinite(hour) || hour < 0 || hour > 23) {
+  if (typeof hour !== 'number' || !Number.isInteger(hour) || hour < 0 || hour > 23) {
     return 'Hello';
   }
   var h = Math.floor(hour);
@@ -165,6 +155,7 @@ function buildGreetingWithName(greeting, name) {
 
 /** Module-level state: the currently displayed name. */
 var currentName = '';
+var greetingInterval = null;
 
 /**
  * Reads `dashboard_name` from Local Storage.
@@ -175,7 +166,7 @@ var currentName = '';
 function loadName() {
   try {
     var stored = localStorage.getItem('dashboard_name');
-    return (stored !== null && stored !== undefined) ? stored : '';
+    return typeof stored === 'string' && stored.trim().length <= 50 ? stored.trim() : '';
   } catch (e) {
     return '';
   }
@@ -197,11 +188,11 @@ function saveName(rawInput) {
   // --- Validation ---
   if (trimmed.length === 0) {
     if (nameError) nameError.textContent = 'Name cannot be empty.';
-    return;
+    return false;
   }
   if (trimmed.length > 50) {
     if (nameError) nameError.textContent = 'Name must be 50 characters or fewer.';
-    return;
+    return false;
   }
 
   // --- Clear any previous error ---
@@ -211,12 +202,13 @@ function saveName(rawInput) {
   try {
     localStorage.setItem('dashboard_name', trimmed);
   } catch (e) {
-    // Local Storage write failed — still update the UI for this session
+    showStorageError('Could not save your name. It will only apply to this session.');
   }
 
   // --- Update module state and re-render ---
   currentName = trimmed;
   updateGreeting();
+  return true;
 }
 
 /**
@@ -260,7 +252,8 @@ function initGreeting() {
   updateGreeting();
 
   // 3. Refresh every 60 seconds
-  setInterval(updateGreeting, 60000);
+  clearInterval(greetingInterval);
+  greetingInterval = setInterval(updateGreeting, 60000);
 
   // 4. Pre-fill the input with any saved name
   var nameInput = document.getElementById('name-input');
@@ -359,6 +352,11 @@ var remainingSeconds = 25 * 60;  // 1500 seconds default
 
 /** The "reset" target value in seconds. Updated when the user sets a custom duration. */
 var configuredSeconds = 25 * 60; // 1500 seconds default
+var remainingMilliseconds = configuredSeconds * 1000;
+var timerDeadline = null;
+var alarmAudio = null;
+// One-second 440 Hz PCM WAV; no external audio request is needed.
+var ALARM_SOUND = "data:audio/wav;base64,UklGRmQfAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUAfAACAgIGCg4SEg4KAfnt4dnZ2eHt/hImNkJGQjYiCe3RuamhpbXR9ho+XnZ+dmJCFem5kXVpcYmx4hpSgqKyrpJmKempcUk1OVmJzhZiotLm5saORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dUEhHTVlpe42eqrGyraSWhnZnXFZVWGBseoeUnaOlopuShntwaGNiZGlxeoOMkpaXlpKMhX54c3BwcXR4fIGFiImKiYeFgoB+fX19fn+AgA==";
 
 // =============================================================================
 // TIMER MODULE — stateful / DOM-wiring functions
@@ -370,93 +368,70 @@ var configuredSeconds = 25 * 60; // 1500 seconds default
  *
  * (Requirement 4.3)
  */
-function startTimer() {
-  if (timerInterval !== null) return; // already running
-  timerInterval = setInterval(tick, 1000);
+function renderTimer() {
+  var display = document.getElementById('timer-display');
+  var value = timerFormatTime(remainingSeconds);
+  if (display && display.textContent !== value) display.textContent = value;
 }
 
-/**
- * Pauses the countdown timer by clearing the active interval.
- * Sets timerInterval back to null so startTimer() can resume.
- *
- * (Requirement 4.4)
- */
+function startTimer() {
+  if (timerInterval !== null || remainingMilliseconds <= 0) return;
+  hideTimerNotification();
+  timerDeadline = Date.now() + remainingMilliseconds;
+  timerInterval = setInterval(tick, 250);
+}
+
 function stopTimer() {
+  // Account for the partial second since the latest callback before pausing.
+  if (timerDeadline !== null) tick();
   clearInterval(timerInterval);
   timerInterval = null;
+  timerDeadline = null;
 }
 
-/**
- * Stops the countdown and restores the display to the current configured
- * duration (configuredSeconds). Also hides the done notification.
- *
- * (Requirement 4.5)
- */
-function resetTimer() {
-  stopTimer();
-  remainingSeconds = configuredSeconds;
-
-  var display = document.getElementById('timer-display');
-  if (display) display.textContent = timerFormatTime(remainingSeconds);
-
-  var doneMsg = document.getElementById('timer-done-msg');
-  if (doneMsg) doneMsg.style.display = 'none';
-}
-
-/**
- * Called every second by the setInterval set up in startTimer().
- * Decrements remainingSeconds by 1 (never below 0), updates #timer-display,
- * and calls handleTimerEnd() when the countdown reaches exactly 0.
- *
- * Key safety guarantee: remainingSeconds will NEVER go below 0.
- * (Requirements 4.3, 4.8 — Property 17)
- */
-function tick() {
-  // Guard: never decrement below 0 (Property 17)
-  if (remainingSeconds <= 0) {
-    stopTimer();
-    return;
+function hideTimerNotification() {
+  var message = document.getElementById('timer-done-msg');
+  if (message) message.style.display = 'none';
+  if (alarmAudio) {
+    alarmAudio.pause();
+    alarmAudio = null;
   }
+}
 
-  remainingSeconds -= 1;
+function resetTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+  timerDeadline = null;
+  remainingSeconds = configuredSeconds;
+  remainingMilliseconds = configuredSeconds * 1000;
+  renderTimer();
+  hideTimerNotification();
+}
 
-  var display = document.getElementById('timer-display');
-  if (display) display.textContent = timerFormatTime(remainingSeconds);
-
-  if (remainingSeconds === 0) {
-    stopTimer();
+function tick() {
+  if (timerDeadline === null) return;
+  remainingMilliseconds = Math.max(0, timerDeadline - Date.now());
+  remainingSeconds = Math.ceil(remainingMilliseconds / 1000);
+  renderTimer();
+  if (remainingMilliseconds === 0) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    timerDeadline = null;
     handleTimerEnd();
   }
 }
 
-/**
- * Handles the end of the countdown session (Requirements 4.6, 4.7, 4.8).
- *
- * Attempts to play an audible alert using a short inline WAV data URI.
- * If audio playback is unavailable or blocked, shows #timer-done-msg for
- * 5 seconds as a visible fallback notification.
- */
+/** Announces completion visually even if the browser blocks the audible alert. */
 function handleTimerEnd() {
-  // Short beep encoded as a minimal WAV (440 Hz, ~0.5 s, 8-bit mono 8 kHz)
-  // This tiny base64 WAV is self-contained and requires no network request.
-  var beepSrc = 'data:audio/wav;base64,' +
-    'UklGRlQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YTAAAAB/' +
-    'f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/' +
-    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-
-  var audio = new Audio(beepSrc);
-
-  audio.play().catch(function () {
-    // Audio playback failed (autoplay policy, no audio device, etc.)
-    // Show visible fallback notification for 5 seconds (Requirement 4.7)
-    var doneMsg = document.getElementById('timer-done-msg');
-    if (doneMsg) {
-      doneMsg.style.display = 'block';
-      setTimeout(function () {
-        doneMsg.style.display = 'none';
-      }, 5000);
+  var doneMsg = document.getElementById('timer-done-msg');
+  if (doneMsg) doneMsg.style.display = 'block';
+  try {
+    alarmAudio = new Audio(ALARM_SOUND);
+    var playback = alarmAudio.play();
+    if (playback && typeof playback.catch === 'function') {
+      playback.catch(function () { /* The visible notification remains available. */ });
     }
-  });
+  } catch (e) { /* Audio is optional; completion is always visible. */ }
 }
 
 // =============================================================================
@@ -476,7 +451,7 @@ function saveTimerDuration() {
   try {
     localStorage.setItem('dashboard_timer_duration', String(configuredSeconds / 60));
   } catch (e) {
-    // Storage write failed — timer duration is still applied for this session
+    showStorageError('Could not save your duration. It will only apply to this session.');
   }
 }
 
@@ -494,7 +469,7 @@ function loadTimerDuration() {
   try {
     var stored = localStorage.getItem('dashboard_timer_duration');
     if (stored !== null) {
-      var parsed = parseInt(stored, 10);
+      var parsed = Number(stored);
       if (validateDuration(parsed)) {
         return parsed;
       }
@@ -523,6 +498,7 @@ function initTimer() {
   var savedMinutes = loadTimerDuration();
   configuredSeconds = savedMinutes * 60;
   remainingSeconds  = configuredSeconds;
+  remainingMilliseconds = configuredSeconds * 1000;
 
   // 2. Render the initial display
   var display = document.getElementById('timer-display');
@@ -544,7 +520,7 @@ function initTimer() {
     var durationInput = document.getElementById('timer-duration-input');
     var durationError = document.getElementById('timer-duration-error');
     var rawValue = durationInput ? durationInput.value : '';
-    var parsed = parseInt(rawValue, 10);
+    var parsed = Number(rawValue);
 
     if (!validateDuration(parsed)) {
       // Invalid input — show error, do NOT change the running timer
@@ -560,14 +536,14 @@ function initTimer() {
     stopTimer(); // Stop any in-progress countdown before changing the duration
     configuredSeconds = parsed * 60;
     remainingSeconds  = configuredSeconds;
+    remainingMilliseconds = configuredSeconds * 1000;
 
     if (display) {
       display.textContent = timerFormatTime(remainingSeconds);
     }
 
     // Hide done message if visible after a reset
-    var doneMsg = document.getElementById('timer-done-msg');
-    if (doneMsg) doneMsg.style.display = 'none';
+    hideTimerNotification();
 
     saveTimerDuration(); // Requirement 5.3
   }
@@ -581,6 +557,7 @@ function initTimer() {
   // 4. Enter key inside the duration input
   var durationInput = document.getElementById('timer-duration-input');
   if (durationInput) {
+    durationInput.value = String(savedMinutes);
     durationInput.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') {
         applyCustomDuration();
@@ -612,8 +589,8 @@ function initTimer() {
  * @returns {boolean}
  */
 function validateTaskText(text) {
-  if (text === null || text === undefined) return false;
-  var trimmed = String(text).trim();
+  if (typeof text !== 'string') return false;
+  var trimmed = text.trim();
   return trimmed.length >= 1 && trimmed.length <= 100;
 }
 
@@ -627,8 +604,10 @@ function validateTaskText(text) {
  *
  * @returns {string}
  */
+var idSequence = 0;
 function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  idSequence += 1;
+  return Date.now().toString(36) + '-' + idSequence.toString(36) + '-' + Math.random().toString(36).slice(2, 6);
 }
 
 // =============================================================================
@@ -651,12 +630,33 @@ var tasks = [];
  * @returns {Array}
  */
 function loadTasks() {
+  tasks = readSavedList('dashboard_tasks', function (task) {
+    return task && typeof task.id === 'string' && task.id.trim().length > 0 &&
+      validateTaskText(task.text) && typeof task.completed === 'boolean';
+  });
+  return tasks.map(function (task) { return Object.assign({}, task); });
+}
+
+/** Validate persisted records before any renderer or event handler uses them. */
+function readSavedList(key, isValid, maximum) {
   try {
-    var stored = localStorage.getItem('dashboard_tasks');
-    if (stored === null || stored === undefined) return [];
+    var stored = localStorage.getItem(key);
+    if (stored === null) return [];
     var parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) throw new Error('Invalid saved list');
+    var ids = new Set();
+    var clean = parsed.filter(function (item) {
+      if (!isValid(item) || ids.has(item.id)) return false;
+      ids.add(item.id);
+      return true;
+    });
+    if (maximum) clean = clean.slice(0, maximum);
+    if (clean.length !== parsed.length) {
+      showStorageError('Some saved items could not be loaded. Valid items have been kept.');
+    }
+    return clean;
   } catch (e) {
+    showStorageError('Saved items could not be loaded. Changes may not be saved on this device.');
     return [];
   }
 }
@@ -703,7 +703,7 @@ function addTask(text) {
         errorEl.textContent = 'Task name must be 100 characters or fewer.';
       }
     }
-    return;
+    return false;
   }
 
   // Clear any previous error
@@ -714,6 +714,7 @@ function addTask(text) {
 
   if (typeof renderTasks === 'function') { renderTasks(); }
   saveTasks();
+  return true;
 }
 
 /**
@@ -761,7 +762,7 @@ function toggleTask(id) {
  * @returns {boolean}
  */
 function editTask(id, newText) {
-  if (!validateTaskText(newText)) return false;
+  if (!validateTaskText(newText) || !tasks.some(function (task) { return task.id === id; })) return false;
 
   var trimmedNew = String(newText).trim();
   tasks = tasks.map(function (task) {
@@ -774,30 +775,6 @@ function editTask(id, newText) {
   if (typeof renderTasks === 'function') { renderTasks(); }
   saveTasks();
   return true;
-}
-
-// =============================================================================
-// MODULE EXPORTS (Node.js / Jest environment only)
-// =============================================================================
-// Wrapped in a guard so the file still works as a plain browser script.
-
-if (typeof module !== 'undefined') {
-  module.exports = {
-    getGreeting,
-    formatTime,
-    timerFormatTime,
-    formatDate,
-    buildGreetingWithName,
-    validateDuration,
-    validateTaskText,
-    generateId,
-    loadTasks,
-    saveTasks,
-    addTask,
-    deleteTask,
-    toggleTask,
-    editTask,
-  };
 }
 
 // =============================================================================
@@ -893,6 +870,7 @@ function initTasks() {
         var editInput = document.createElement('input');
         editInput.type = 'text';
         editInput.className = 'task-edit-input';
+        editInput.setAttribute('aria-label', 'Edit task text');
         editInput.value = currentText;
         editInput.maxLength = 100;
 
@@ -950,10 +928,7 @@ function initTasks() {
 
   function handleAddTask() {
     var text = taskInput ? taskInput.value : '';
-    addTask(text);
-    // Clear input on successful add (error check: if no error text was set)
-    var errorEl = document.getElementById('task-input-error');
-    if (errorEl && errorEl.textContent === '') {
+    if (addTask(text)) {
       if (taskInput) taskInput.value = '';
     }
   }
@@ -987,8 +962,8 @@ function initTasks() {
  * @returns {boolean}
  */
 function validateLinkName(name) {
-  if (name === null || name === undefined) return false;
-  var trimmed = String(name).trim();
+  if (typeof name !== 'string') return false;
+  var trimmed = name.trim();
   return trimmed.length >= 1 && trimmed.length <= 50;
 }
 
@@ -1002,9 +977,15 @@ function validateLinkName(name) {
  * @returns {boolean}
  */
 function validateLinkUrl(url) {
-  if (url === null || url === undefined) return false;
-  var s = String(url);
-  return s.startsWith('http://') || s.startsWith('https://');
+  if (typeof url !== 'string') return false;
+  var value = url.trim();
+  if (!/^https?:\/\/[^/\\\s]/i.test(value) || /[\u0000-\u001f\u007f]/.test(value)) return false;
+  try {
+    var parsed = new URL(value);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !!parsed.hostname;
+  } catch (e) {
+    return false;
+  }
 }
 
 // =============================================================================
@@ -1030,14 +1011,11 @@ var MAX_LINKS = 20;
  * @returns {Array}
  */
 function loadLinks() {
-  try {
-    var stored = localStorage.getItem('dashboard_links');
-    if (stored === null || stored === undefined) return [];
-    var parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    return [];
-  }
+  links = readSavedList('dashboard_links', function (link) {
+    return link && typeof link.id === 'string' && link.id.trim().length > 0 &&
+      validateLinkName(link.name) && validateLinkUrl(link.url);
+  }, MAX_LINKS);
+  return links.map(function (link) { return Object.assign({}, link); });
 }
 
 /**
@@ -1072,17 +1050,17 @@ function addLink(name, url) {
 
   if (!validateLinkName(name)) {
     if (errorEl) errorEl.textContent = 'Link name must be 1–50 characters.';
-    return;
+    return false;
   }
 
   if (!validateLinkUrl(url)) {
-    if (errorEl) errorEl.textContent = 'URL must start with http:// or https://';
-    return;
+    if (errorEl) errorEl.textContent = 'Enter a valid website URL starting with http:// or https://';
+    return false;
   }
 
   if (links.length >= MAX_LINKS) {
     if (errorEl) errorEl.textContent = 'Maximum of 20 links reached.';
-    return;
+    return false;
   }
 
   if (errorEl) errorEl.textContent = '';
@@ -1095,6 +1073,7 @@ function addLink(name, url) {
 
   renderLinks();
   saveLinks();
+  return true;
 }
 
 /**
@@ -1187,9 +1166,7 @@ function initLinks() {
   function handleAddLink() {
     var name = nameInput ? nameInput.value : '';
     var url  = urlInput  ? urlInput.value  : '';
-    addLink(name, url);
-    // Clear inputs on success
-    if (errorEl && errorEl.textContent === '') {
+    if (addLink(name, url)) {
       if (nameInput) nameInput.value = '';
       if (urlInput)  urlInput.value  = '';
     }
@@ -1199,11 +1176,11 @@ function initLinks() {
     addBtn.addEventListener('click', handleAddLink);
   }
 
-  if (urlInput) {
-    urlInput.addEventListener('keydown', function (e) {
+  [nameInput, urlInput].forEach(function (input) {
+    if (input) input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') handleAddLink();
     });
-  }
+  });
 
   // Clear error as user types
   [nameInput, urlInput].forEach(function (el) {
@@ -1227,46 +1204,61 @@ function initLinks() {
  *
  * @param {string} message
  */
+var storageErrorTimeout = null;
+
 function showStorageError(message) {
   var toast = document.getElementById('storage-error-toast');
   if (!toast) return;
   toast.textContent = message || 'Could not save your changes. Storage may be full.';
   toast.style.display = 'block';
-  setTimeout(function () {
+  clearTimeout(storageErrorTimeout);
+  storageErrorTimeout = setTimeout(function () {
     toast.style.display = 'none';
   }, 3000);
 }
 
 // =============================================================================
-// TOP-LEVEL WIRING (Task 12.1)
+// STARTUP AND TEST EXPORTS
 // =============================================================================
-// initTheme() was already called at the top of this file (before DOMContentLoaded)
-// to prevent a flash of the wrong theme.
-//
-// All other module inits run inside DOMContentLoaded so the DOM is ready.
+var dashboardInitialized = false;
 
-document.addEventListener('DOMContentLoaded', function () {
+function initDashboard() {
+  if (dashboardInitialized) return;
+  dashboardInitialized = true;
+  _updateThemeButton(document.documentElement.getAttribute('data-theme'));
+  var themeButton = document.getElementById('theme-toggle-btn');
+  if (themeButton) themeButton.addEventListener('click', toggleTheme);
   initGreeting();
   initTimer();
   initTasks();
   initLinks();
-});
+  // Refresh elapsed time and the clock when returning from a background tab.
+  document.addEventListener('visibilitychange', refreshTime);
+  window.addEventListener('pageshow', refreshTime);
+}
 
-// =============================================================================
-// MODULE EXPORTS — update to include new exports (Node.js / Jest only)
-// =============================================================================
-if (typeof module !== 'undefined') {
-  module.exports = Object.assign(module.exports || {}, {
-    validateLinkName,
-    validateLinkUrl,
-    loadLinks,
-    saveLinks,
-    addLink,
-    deleteLink,
-    renderLinks,
-    initLinks,
-    renderTasks,
-    initTasks,
-    showStorageError,
-  });
+function refreshTime() {
+  updateGreeting();
+  tick();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    getGreeting, formatTime, timerFormatTime, formatDate, buildGreetingWithName,
+    saveName, loadName, updateGreeting, initGreeting,
+    initTheme, toggleTheme, validateDuration, startTimer, stopTimer, resetTimer,
+    tick, handleTimerEnd, saveTimerDuration, loadTimerDuration, initTimer,
+    validateTaskText, generateId, loadTasks, saveTasks, addTask, editTask,
+    toggleTask, deleteTask, renderTasks, initTasks,
+    validateLinkName, validateLinkUrl, loadLinks, saveLinks, addLink, deleteLink,
+    renderLinks, initLinks, showStorageError, initDashboard
+  };
+} else {
+  // index.html loads this blocking script in <head>, before any body is painted.
+  initTheme();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDashboard, { once: true });
+  } else {
+    initDashboard();
+  }
 }

@@ -1,261 +1,135 @@
-/**
- * Task List Module — Property-Based Tests
- * Feature: todo-life-dashboard
- *
- * Tests the task validation and mutation logic from js/app.js.
- *
- * Note: Jest + fast-check are configured in task 13.1.
- * Exports from js/app.js are wired up in task 13.2.
- * Until then, all functions are stubbed inline here, mirroring the exact
- * logic described in js/app.js and the design spec.
- */
-
 const fc = require('fast-check');
-
-// ---------------------------------------------------------------------------
-// Stubs — mirror the exact implementations in js/app.js
-// ---------------------------------------------------------------------------
-
-/**
- * Validates a candidate task name string.
- *
- * Returns `true` if and only if the trimmed input has a length between 1 and
- * 100 characters (inclusive). Returns `false` for null, undefined, empty
- * strings, whitespace-only strings, or strings whose trimmed length exceeds 100.
- *
- * (Requirements 6.2, 6.5, 6.6)
- *
- * @param {*} text - Candidate task name
- * @returns {boolean}
- */
-function validateTaskText(text) {
-  if (text === null || text === undefined) return false;
-  var trimmed = String(text).trim();
-  return trimmed.length >= 1 && trimmed.length <= 100;
+const text = fc.string({ minLength: 1, maxLength: 100 }).filter(s => s.trim().length > 0);
+const list = fc.array(text, { minLength: 1, maxLength: 8 });
+let app;
+beforeEach(() => { app = require('../js/app'); });
+function seed(values = []) {
+  localStorage.removeItem('dashboard_tasks');
+  app.loadTasks();
+  values.forEach(value => app.addTask(value));
+  return app.loadTasks();
 }
-
-/**
- * Generates a short, unique-enough ID string for client-side use.
- *
- * @returns {string}
- */
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-}
-
-// ---------------------------------------------------------------------------
-// In-memory task store — used by addTask / loadTasks / saveTasks stubs.
-// This mirrors the Local Storage-backed implementation that will be wired
-// up in task 8.4 / 13.2. Tests reset this store between runs.
-// ---------------------------------------------------------------------------
-
-var _taskStore = [];
-
-function loadTasks() {
-  return _taskStore.slice(); // return a copy
-}
-
-function saveTasks(tasks) {
-  _taskStore = tasks.slice();
-}
-
-/**
- * Validates `text`, then pushes a new { id, text, completed: false } object
- * to the task store.  Returns `true` on success, `false` if validation fails.
- *
- * Mirrors addTask() from app.js (task 8.4).
- *
- * @param {string} text - Raw task name
- * @returns {boolean}
- */
-function addTask(text) {
-  if (!validateTaskText(text)) return false;
-  var trimmed = String(text).trim();
-  var tasks = loadTasks();
-  tasks.push({ id: generateId(), text: trimmed, completed: false });
-  saveTasks(tasks);
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Property 5: Valid task addition grows the task list by exactly one
-// ---------------------------------------------------------------------------
 
 // Feature: todo-life-dashboard, Property 5: Valid task addition grows the list
-test('Property 5 — valid task addition grows the task list by exactly one', () => {
-  /**
-   * Validates: Requirements 6.2, 6.3
-   *
-   * For any valid task string (trimmed length 1–100):
-   *   - addTask() must return true
-   *   - The task list must grow from N to N + 1
-   *   - The new entry's text must equal the trimmed input
-   */
-  fc.assert(
-    fc.property(
-      fc.string({ minLength: 1, maxLength: 100 }),
-      (text) => {
-        // Only test strings whose trimmed form is still valid (1–100 chars)
-        fc.pre(text.trim().length >= 1 && text.trim().length <= 100);
-
-        // Reset store before each iteration
-        _taskStore = [];
-
-        const beforeCount = loadTasks().length; // 0
-        const result = addTask(text);
-
-        expect(result).toBe(true);
-        const tasks = loadTasks();
-        expect(tasks.length).toBe(beforeCount + 1);
-        expect(tasks[tasks.length - 1].text).toBe(text.trim());
-      }
-    ),
-    { numRuns: 100 }
-  );
+test('Property 5: valid task addition adds exactly one item to any existing list', () => {
+  fc.assert(fc.property(list, text, (values, value) => {
+    const before = seed(values);
+    expect(app.addTask(value)).toBe(true);
+    const after = app.loadTasks();
+    expect(after.slice(0, -1)).toEqual(before);
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.at(-1)).toEqual({ id: expect.any(String), text: value.trim(), completed: false });
+  }), { numRuns: 100 });
 });
-
-// ---------------------------------------------------------------------------
-// Property 6: Whitespace-only and oversized task names are always rejected
-// ---------------------------------------------------------------------------
 
 // Feature: todo-life-dashboard, Property 6: Invalid task names are rejected
-test('Property 6a — whitespace-only task names are always rejected', () => {
-  /**
-   * Validates: Requirements 6.5
-   *
-   * For any string composed entirely of whitespace characters
-   * (spaces, tabs, newlines):
-   *   - validateTaskText() must return false
-   *   - addTask() must return false and leave the list unchanged
-   */
-  fc.assert(
-    fc.property(
-      fc.stringOf(fc.constantFrom(' ', '\t', '\n')),
-      (whitespaceStr) => {
-        // Reset store before each iteration
-        _taskStore = [];
-        const beforeCount = loadTasks().length; // always 0 after reset
-
-        // validateTaskText must reject the whitespace-only string
-        expect(validateTaskText(whitespaceStr)).toBe(false);
-
-        // addTask must return false and not mutate the list
-        const result = addTask(whitespaceStr);
-        expect(result).toBe(false);
-        expect(loadTasks().length).toBe(beforeCount);
-      }
-    ),
-    { numRuns: 100 }
-  );
+test('Property 6: whitespace and oversized names cannot mutate tasks', () => {
+  fc.assert(fc.property(fc.oneof(fc.stringOf(fc.constantFrom(' ', '\t', '\n')), fc.integer({ min: 101, max: 300 }).map(n => 'x'.repeat(n))), value => {
+    const before = seed(['Keep me']);
+    expect(app.addTask(value)).toBe(false);
+    expect(app.loadTasks()).toEqual(before);
+  }), { numRuns: 100 });
 });
 
-test('Property 6b — oversized task names (trimmed length > 100) are always rejected', () => {
-  /**
-   * Validates: Requirements 6.6
-   *
-   * For any string whose trimmed length exceeds 100 characters:
-   *   - validateTaskText() must return false
-   *   - addTask() must return false and leave the list unchanged
-   */
-  fc.assert(
-    fc.property(
-      // Generate a base string of 101–200 non-whitespace characters to ensure
-      // the trimmed length is definitively > 100.  Padding with optional
-      // surrounding whitespace keeps the trimmed-length violation intact.
-      fc.tuple(
-        fc.string({ minLength: 101, maxLength: 200 }).filter(s => s.trim().length > 100),
-        fc.string({ maxLength: 5 }).map(s => s.replace(/\S/g, ' ')), // leading spaces
-        fc.string({ maxLength: 5 }).map(s => s.replace(/\S/g, ' '))  // trailing spaces
-      ),
-      ([core, leading, trailing]) => {
-        const oversizedStr = leading + core + trailing;
-
-        // Confirm precondition: trimmed length is genuinely > 100
-        fc.pre(oversizedStr.trim().length > 100);
-
-        // Reset store before each iteration
-        _taskStore = [];
-        const beforeCount = loadTasks().length;
-
-        // validateTaskText must reject the oversized string
-        expect(validateTaskText(oversizedStr)).toBe(false);
-
-        // addTask must return false and not mutate the list
-        const result = addTask(oversizedStr);
-        expect(result).toBe(false);
-        expect(loadTasks().length).toBe(beforeCount);
-      }
-    ),
-    { numRuns: 100 }
-  );
+// Feature: todo-life-dashboard, Property 7: Task add-load round trip
+test('Property 7: task data survives serialization and restoration', () => {
+  fc.assert(fc.property(list, values => {
+    const expected = seed(values);
+    app.saveTasks();
+    expect(JSON.parse(localStorage.getItem('dashboard_tasks'))).toEqual(expected);
+    expect(app.loadTasks()).toEqual(expected);
+  }), { numRuns: 100 });
 });
 
-// ---------------------------------------------------------------------------
-// Supporting unit tests — specific edge cases
-// ---------------------------------------------------------------------------
-
-test('validateTaskText returns false for empty string', () => {
-  expect(validateTaskText('')).toBe(false);
+// Feature: todo-life-dashboard, Property 8: Toggle completion is self-inverse
+test('Property 8: toggling twice restores the full original list', () => {
+  fc.assert(fc.property(list, fc.nat(), fc.boolean(), (values, n, completed) => {
+    let before = seed(values);
+    const id = before[n % before.length].id;
+    if (completed) app.toggleTask(id);
+    before = app.loadTasks();
+    app.toggleTask(id);
+    app.toggleTask(id);
+    expect(app.loadTasks()).toEqual(before);
+  }), { numRuns: 100 });
 });
 
-test('validateTaskText returns false for whitespace-only string', () => {
-  expect(validateTaskText('   ')).toBe(false);
-  expect(validateTaskText('\t')).toBe(false);
-  expect(validateTaskText('\n')).toBe(false);
-  expect(validateTaskText(' \t\n ')).toBe(false);
+// Feature: todo-life-dashboard, Property 9: Task deletion removes only the target
+test('Property 9: deletion preserves all untargeted tasks and their order', () => {
+  fc.assert(fc.property(list, fc.nat(), (values, n) => {
+    const before = seed(values);
+    const id = before[n % before.length].id;
+    app.deleteTask(id);
+    expect(app.loadTasks()).toEqual(before.filter(task => task.id !== id));
+  }), { numRuns: 100 });
 });
 
-test('validateTaskText returns false for null and undefined', () => {
-  expect(validateTaskText(null)).toBe(false);
-  expect(validateTaskText(undefined)).toBe(false);
+// Feature: todo-life-dashboard, Property 10: Task edits persist new text
+test('Property 10: edits persist and affect only their target', () => {
+  fc.assert(fc.property(list, text, fc.nat(), (values, replacement, n) => {
+    const before = seed(values);
+    const id = before[n % before.length].id;
+    expect(app.editTask(id, replacement)).toBe(true);
+    expect(app.loadTasks()).toEqual(before.map(task => task.id === id ? { ...task, text: replacement.trim() } : task));
+  }), { numRuns: 100 });
 });
 
-test('validateTaskText returns false for a string with trimmed length > 100', () => {
-  const tooLong = 'x'.repeat(101);
-  expect(validateTaskText(tooLong)).toBe(false);
+test('delegated add, edit, invalid save, cancel, complete, and delete work through the DOM', () => {
+  app.initTasks();
+  const input = document.getElementById('task-input');
+  input.value = 'Original';
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(input.value).toBe('');
+  document.querySelector('.task-edit-btn').click();
+  document.querySelector('.task-edit-input').value = '  ';
+  document.querySelector('.task-save-btn').click();
+  expect(document.querySelector('.task-inline-error').textContent).not.toBe('');
+  expect(app.loadTasks()[0].text).toBe('Original');
+  document.querySelector('.task-cancel-btn').click();
+  expect(document.querySelector('.task-text').textContent).toBe('Original');
+  document.querySelector('.task-edit-btn').click();
+  document.querySelector('.task-edit-input').value = 'Edited';
+  document.querySelector('.task-save-btn').click();
+  document.querySelector('.task-checkbox').click();
+  expect(document.querySelector('.task-text').classList.contains('completed')).toBe(true);
+  expect(app.loadTasks()[0]).toMatchObject({ text: 'Edited', completed: true });
+  document.querySelector('.task-delete-btn').click();
+  expect(app.loadTasks()).toEqual([]);
+  expect(document.querySelectorAll('#task-list li')).toHaveLength(0);
 });
 
-test('validateTaskText returns true for a single non-whitespace character', () => {
-  expect(validateTaskText('a')).toBe(true);
+test('task text is rendered literally, never as executable HTML', () => {
+  app.addTask('<img src=x onerror=alert(1)>');
+  expect(document.querySelector('#task-list img')).toBeNull();
+  expect(document.querySelector('.task-text').textContent).toBe('<img src=x onerror=alert(1)>');
 });
 
-test('validateTaskText returns true for a string of exactly 100 characters', () => {
-  const exactly100 = 'a'.repeat(100);
-  expect(validateTaskText(exactly100)).toBe(true);
+test.each(['[null]', '{"text":"wrong container"}', 'not JSON'])('corrupt task data %s does not break initialization', value => {
+  localStorage.setItem('dashboard_tasks', value);
+  expect(() => app.initTasks()).not.toThrow();
+  expect(document.querySelectorAll('#task-list li')).toHaveLength(0);
 });
 
-test('validateTaskText returns false for a string of exactly 101 characters', () => {
-  const exactly101 = 'a'.repeat(101);
-  expect(validateTaskText(exactly101)).toBe(false);
+test('mixed saved tasks retain valid records and reject duplicate IDs', () => {
+  const valid = { id: 'one', text: 'Keep', completed: false };
+  localStorage.setItem('dashboard_tasks', JSON.stringify([null, valid, valid, { id: 'two', text: 'Bad', completed: 'false' }]));
+  expect(app.loadTasks()).toEqual([valid]);
 });
 
-test('addTask returns false for empty string and does not grow the list', () => {
-  _taskStore = [];
-  expect(addTask('')).toBe(false);
-  expect(loadTasks().length).toBe(0);
+test('blocked storage shows a toast while keeping session tasks usable', () => {
+  jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+  app.addTask('Unsaved task');
+  expect(document.querySelector('.task-text').textContent).toBe('Unsaved task');
+  expect(document.getElementById('storage-error-toast').style.display).toBe('block');
+  jest.advanceTimersByTime(3000);
+  expect(document.getElementById('storage-error-toast').style.display).toBe('none');
 });
 
-test('addTask returns false for whitespace-only string and does not grow the list', () => {
-  _taskStore = [];
-  expect(addTask('   \t\n')).toBe(false);
-  expect(loadTasks().length).toBe(0);
-});
-
-test('addTask returns false for oversized string and does not grow the list', () => {
-  _taskStore = [];
-  expect(addTask('x'.repeat(101))).toBe(false);
-  expect(loadTasks().length).toBe(0);
-});
-
-test('addTask with existing tasks does not grow list when input is invalid', () => {
-  _taskStore = [];
-  addTask('Task One');
-  addTask('Task Two');
-  const countBefore = loadTasks().length; // 2
-
-  addTask('   '); // whitespace — rejected
-  addTask('');    // empty — rejected
-  addTask('x'.repeat(200)); // too long — rejected
-
-  expect(loadTasks().length).toBe(countBefore);
+test('malformed task data does not prevent the other dashboard widgets from starting', () => {
+  localStorage.setItem('dashboard_tasks', '[null]');
+  app.initDashboard();
+  document.getElementById('link-name-input').value = 'Example';
+  document.getElementById('link-url-input').value = 'https://example.com';
+  document.getElementById('link-add-btn').click();
+  expect(document.querySelector('#links-grid a').textContent).toBe('Example');
 });

@@ -78,7 +78,7 @@ The To-do List Life Dashboard is a simple, single-page website that helps users 
 6. WHEN the Timer countdown reaches 00:00, THE Timer SHALL play an audible alert sound with a minimum duration of 1 second to notify the User that the session has ended.
 7. IF the Timer countdown reaches 00:00 and the browser cannot play audio, THEN THE Timer SHALL display a visible notification indicating the session has ended.
 8. WHEN the Timer countdown reaches 00:00, THE Timer SHALL stop counting and display 00:00.
-9. WHEN the User sets a custom duration between 1 minute and 99 minutes, THE Timer SHALL update the configured duration and reset the display to the new value in MM:SS format.
+9. WHEN the User sets a custom duration between 1 minute and 120 minutes, THE Timer SHALL update the configured duration and reset the display to the new value in MM:SS format.
 
 ---
 
@@ -151,7 +151,7 @@ The To-do List Life Dashboard is a simple, single-page website that helps users 
 2. WHEN the User provides a valid name and a valid URL and clicks Add Link, THE Quick_Links section SHALL display the new Link as a clickable button labeled with the saved name.
 3. WHEN the User clicks a Link button, THE Dashboard SHALL open the saved URL in a new browser tab.
 4. WHEN a new Link is added, THE Dashboard SHALL save the updated Quick_Links list to Local_Storage.
-5. IF the User attempts to add a Link with an empty name, a name exceeding 50 characters, or a URL that does not start with http:// or https://, THEN THE Quick_Links section SHALL not add the Link and SHALL display a validation message indicating which field failed validation.
+5. IF the User attempts to add a Link with an empty name, a name exceeding 50 characters, or an invalid URL (must be a parseable HTTP(S) URL with a hostname), THEN THE Quick_Links section SHALL not add the Link and SHALL display a validation message indicating which field failed validation.
 6. THE Quick_Links section SHALL support saving up to 20 links; IF the User attempts to add a link when 20 links already exist, THEN THE Quick_Links section SHALL display a message indicating the maximum limit has been reached.
 
 ---
@@ -185,7 +185,7 @@ The To-do List Life Dashboard is a simple, single-page website that helps users 
 #### Acceptance Criteria
 
 1. THE Dashboard SHALL display a toggle button that switches between light mode and dark mode.
-2. WHEN the User clicks the toggle button, THE Dashboard SHALL apply the selected Theme to all visible elements within 100ms (one rendering frame).
+2. WHEN the User clicks the toggle button, THE Dashboard SHALL apply the selected Theme to all visible elements within 100ms.
 3. WHEN the User selects a Theme, THE Dashboard SHALL save the Theme preference to Local_Storage.
 4. WHEN the page loads, THE Dashboard SHALL read the saved Theme preference from Local_Storage and apply it before any content is rendered, preventing a flash of the wrong theme.
 5. IF no Theme preference is saved in Local_Storage, THEN THE Dashboard SHALL default to light mode on page load.

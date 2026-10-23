@@ -11,6 +11,8 @@
   --card-bg:  #ffffff;
   --border:   #d1d5db;
   --accent:   #4f46e5;
+  --button-bg: #4f46e5;
+  --error-text: #b91c1c;
 }
 
 /* Dark theme — Requirements 12.1, 12.2 */
@@ -20,6 +22,8 @@
   --card-bg:  #16213e;
   --border:   #374151;
   --accent:   #818cf8;
+  --button-bg: #4f46e5;
+  --error-text: #fca5a5;
 }
 
 /* ==========================================================================
@@ -88,7 +92,7 @@ input[type="url"]:focus {
 
 /* Buttons */
 button {
-  background-color: var(--accent);
+  background-color: var(--button-bg);
   border: none;
   border-radius: 0.4rem;
   color: #ffffff;
@@ -121,7 +125,7 @@ button.btn-secondary:hover {
 
 /* Validation error spans */
 .error-msg {
-  color: #dc2626;
+  color: var(--error-text);
   font-size: 0.82rem;
   margin-top: 0.25rem;
   display: block;
@@ -200,7 +204,7 @@ button.btn-secondary:hover {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.25rem;
   padding: 1.25rem 1.5rem;
   max-width: 1100px;
@@ -366,6 +370,7 @@ button.btn-secondary:hover {
 /* Individual task row */
 #task-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.5rem;
@@ -469,7 +474,7 @@ button.btn-secondary:hover {
   text-decoration: none;
   font-size: 0.875rem;
   font-weight: 500;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   transition: opacity 80ms ease;
 }
 
@@ -508,6 +513,7 @@ button.btn-secondary:hover {
   bottom: 1.25rem;
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100vw - 2rem);
   background-color: #dc2626;
   color: #ffffff;
   font-size: 0.875rem;
@@ -515,5 +521,5 @@ button.btn-secondary:hover {
   border-radius: 0.4rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   z-index: 9999;
-  white-space: nowrap;
+  white-space: normal;
 }
