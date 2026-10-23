@@ -330,6 +330,48 @@ button.btn-secondary:hover {
   flex-shrink: 0;
 }
 
+.timer-modes {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.timer-modes button,
+#pomodoro-reset-cycle-btn {
+  background-color: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.timer-modes button[aria-pressed="true"] {
+  background-color: var(--button-bg);
+  border-color: var(--button-bg);
+  color: #ffffff;
+}
+
+.pomodoro-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.pomodoro-hint {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+#timer-next-btn {
+  margin-top: 0.5rem;
+}
+
 /* Timer session-complete notification — hidden until needed (Req 4.7) */
 .timer-done-msg {
   display: none; /* overridden by JS when shown */

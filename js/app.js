@@ -355,6 +355,105 @@ var configuredSeconds = 25 * 60; // 1500 seconds default
 var remainingMilliseconds = configuredSeconds * 1000;
 var timerDeadline = null;
 var alarmAudio = null;
+var timerMode = 'focus';
+var completedFocusSessions = 0;
+var nextTimerMode = null;
+var POMODORO_MODES = {
+  focus: { label: 'Focus' },
+  short: { label: 'Short Break', seconds: 5 * 60 },
+  long: { label: 'Long Break', seconds: 15 * 60 }
+};
+
+function currentModeSeconds() {
+  return timerMode === 'focus' ? configuredSeconds : POMODORO_MODES[timerMode].seconds;
+}
+
+function savePomodoroProgress() {
+  try {
+    localStorage.setItem('dashboard_pomodoro_progress', JSON.stringify({
+      version: 1, mode: timerMode, completed: completedFocusSessions, next: nextTimerMode
+    }));
+  } catch (e) {
+    showStorageError('Could not save Pomodoro progress. It will only apply to this session.');
+  }
+}
+
+function loadPomodoroProgress() {
+  timerMode = 'focus';
+  completedFocusSessions = 0;
+  nextTimerMode = null;
+  try {
+    var saved = JSON.parse(localStorage.getItem('dashboard_pomodoro_progress'));
+    if (!saved || saved.version !== 1 ||
+        !Object.prototype.hasOwnProperty.call(POMODORO_MODES, saved.mode) ||
+        !Number.isInteger(saved.completed) || saved.completed < 0 || saved.completed > 4) return;
+    var expectedNext = saved.mode === 'focus' ? (saved.completed === 4 ? 'long' : 'short') : 'focus';
+    if (saved.next !== null && saved.next !== expectedNext) return;
+    if (saved.mode === 'focus' && saved.next !== null && saved.completed === 0) return;
+    if (saved.mode === 'long' && saved.next === 'focus' && saved.completed !== 0) return;
+    timerMode = saved.mode;
+    completedFocusSessions = saved.completed;
+    nextTimerMode = saved.next;
+  } catch (e) { /* Missing, blocked, or malformed storage uses a fresh focus cycle. */ }
+}
+
+function renderPomodoroState() {
+  document.querySelectorAll('[data-timer-mode]').forEach(function (button) {
+    button.setAttribute('aria-pressed', String(button.getAttribute('data-timer-mode') === timerMode));
+  });
+  var progress = document.getElementById('pomodoro-progress');
+  if (progress) progress.textContent = 'Focus completed: ' + completedFocusSessions + ' of 4';
+  var hint = document.getElementById('pomodoro-hint');
+  if (hint) hint.textContent = (configuredSeconds / 60) + ' min focus · 5 min short break · 15 min long break after 4 focus sessions.';
+  var nextButton = document.getElementById('timer-next-btn');
+  if (nextButton) {
+    nextButton.hidden = nextTimerMode === null;
+    nextButton.textContent = nextTimerMode ? 'Start ' + POMODORO_MODES[nextTimerMode].label : 'Next session';
+  }
+  var display = document.getElementById('timer-display');
+  if (display) display.setAttribute('aria-label', POMODORO_MODES[timerMode].label + ' countdown');
+}
+
+/** Changing modes discards the active interval without crediting unfinished work. */
+function setTimerMode(mode) {
+  if (!Object.prototype.hasOwnProperty.call(POMODORO_MODES, mode)) return false;
+  clearInterval(timerInterval);
+  timerInterval = null;
+  timerDeadline = null;
+  timerMode = mode;
+  nextTimerMode = null;
+  remainingSeconds = currentModeSeconds();
+  remainingMilliseconds = remainingSeconds * 1000;
+  hideTimerNotification();
+  renderTimer();
+  renderPomodoroState();
+  savePomodoroProgress();
+  return true;
+}
+
+function startNextTimer() {
+  if (nextTimerMode === null) return;
+  var next = nextTimerMode;
+  setTimerMode(next);
+  startTimer();
+}
+
+function resetPomodoroCycle() {
+  completedFocusSessions = 0;
+  setTimerMode('focus');
+}
+
+function completePomodoroInterval() {
+  if (timerMode === 'focus') {
+    completedFocusSessions = Math.min(4, completedFocusSessions + 1);
+    nextTimerMode = completedFocusSessions === 4 ? 'long' : 'short';
+  } else {
+    if (timerMode === 'long') completedFocusSessions = 0;
+    nextTimerMode = 'focus';
+  }
+  savePomodoroProgress();
+  renderPomodoroState();
+}
 // One-second 440 Hz PCM WAV; no external audio request is needed.
 var ALARM_SOUND = "data:audio/wav;base64,UklGRmQfAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUAfAACAgIGCg4SEg4KAfnt4dnZ2eHt/hImNkJGQjYiCe3RuamhpbXR9ho+XnZ+dmJCFem5kXVpcYmx4hpSgqKyrpJmKempcUk1OVmJzhZiotLm5saORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dTkZESlZmeo+isbq8t6ybiHNgUUdESFNjd4ufrri8uK6fi3djU0hER1Fgc4ibrLe8urGij3pmVkpERk5db4SYqbW8u7Olk35qWEtFRUxabICUprS7u7WoloJtW01FREtXaHyRo7K6vLaqmoZxXk9GRElUZXiNoK+5vLitnYl1YVJIREhSYXWJna24vLmvoI14ZVRJREZPXnGGmqq2vLqyo5F8aFdLREVNW22Clqi1u7u0ppSAbFpMRUVLWGp+k6Wzu7y1qZiEb11ORkRKVmZ6j6Kxury3rJuIc2BRR0RIU2N3i5+uuLy4rp+Ld2NTSERHUWBziJust7y6saKPemZWSkRGTl1vhJiptby7s6WTfmpYS0VFTFpsgJSmtLu7taiWgm1bTUVES1dofJGjsrq8tqqahnFeT0ZESVRleI2gr7m8uK2diXVhUkhESFJhdYmdrbi8ua+gjXhlVElERk9ecYaaqra8urKjkXxoV0tERU1bbYKWqLW7u7SmlIBsWkxFRUtYan6TpbO7vLWpmIRvXU5GREpWZnqPorG6vLesm4hzYFFHREhTY3eLn664vLiun4t3Y1NIREdRYHOIm6y3vLqxoo96ZlZKREZOXW+EmKm1vLuzpZN+alhLRUVMWmyAlKa0u7u1qJaCbVtNRURLV2h8kaOyury2qpqGcV5PRkRJVGV4jaCvuby4rZ2JdWFSSERIUmF1iZ2tuLy5r6CNeGVUSURGT15xhpqqtry6sqORfGhXS0RFTVttgpaotbu7tKaUgGxaTEVFS1hqfpOls7u8tamYhG9dUEhHTVlpe42eqrGyraSWhnZnXFZVWGBseoeUnaOlopuShntwaGNiZGlxeoOMkpaXlpKMhX54c3BwcXR4fIGFiImKiYeFgoB+fX19fn+AgA==";
 
@@ -399,13 +498,7 @@ function hideTimerNotification() {
 }
 
 function resetTimer() {
-  clearInterval(timerInterval);
-  timerInterval = null;
-  timerDeadline = null;
-  remainingSeconds = configuredSeconds;
-  remainingMilliseconds = configuredSeconds * 1000;
-  renderTimer();
-  hideTimerNotification();
+  setTimerMode(timerMode);
 }
 
 function tick() {
@@ -417,6 +510,7 @@ function tick() {
     clearInterval(timerInterval);
     timerInterval = null;
     timerDeadline = null;
+    completePomodoroInterval();
     handleTimerEnd();
   }
 }
@@ -424,6 +518,14 @@ function tick() {
 /** Announces completion visually even if the browser blocks the audible alert. */
 function handleTimerEnd() {
   var doneMsg = document.getElementById('timer-done-msg');
+  var doneText = document.getElementById('timer-done-text');
+  if (doneText) {
+    doneText.textContent = nextTimerMode ?
+      POMODORO_MODES[timerMode].label + ' complete! ' +
+        (nextTimerMode === 'focus' ? 'Ready for your next focus session.' :
+          'Take a ' + (POMODORO_MODES[nextTimerMode].seconds / 60) + '-minute break.') :
+      'Session complete!';
+  }
   if (doneMsg) doneMsg.style.display = 'block';
   try {
     alarmAudio = new Audio(ALARM_SOUND);
@@ -494,17 +596,40 @@ function loadTimerDuration() {
  * (Requirements 4.2, 4.9, 5.1, 5.2, 5.3, 5.4, 5.6)
  */
 function initTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+  timerDeadline = null;
+  hideTimerNotification();
   // 1. Load saved duration and set module-level state
   var savedMinutes = loadTimerDuration();
   configuredSeconds = savedMinutes * 60;
-  remainingSeconds  = configuredSeconds;
-  remainingMilliseconds = configuredSeconds * 1000;
+  loadPomodoroProgress();
+  remainingSeconds = nextTimerMode === null ? currentModeSeconds() : 0;
+  remainingMilliseconds = remainingSeconds * 1000;
 
   // 2. Render the initial display
   var display = document.getElementById('timer-display');
   if (display) {
     display.textContent = timerFormatTime(remainingSeconds);
   }
+
+  renderPomodoroState();
+  if (nextTimerMode !== null) {
+    // Restore a finished interval quietly; reloading never credits another session or repeats the alarm.
+    var restoredMessage = document.getElementById('timer-done-msg');
+    var restoredText = document.getElementById('timer-done-text');
+    if (restoredText) restoredText.textContent = POMODORO_MODES[timerMode].label + ' complete. Your next interval is ready.';
+    if (restoredMessage) restoredMessage.style.display = 'block';
+  }
+  document.querySelectorAll('[data-timer-mode]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      setTimerMode(button.getAttribute('data-timer-mode'));
+    });
+  });
+  var nextButton = document.getElementById('timer-next-btn');
+  if (nextButton) nextButton.addEventListener('click', startNextTimer);
+  var cycleButton = document.getElementById('pomodoro-reset-cycle-btn');
+  if (cycleButton) cycleButton.addEventListener('click', resetPomodoroCycle);
 
   // 3. Start / Stop / Reset button listeners
   var startBtn = document.getElementById('timer-start-btn');
@@ -533,17 +658,9 @@ function initTimer() {
     // Valid — clear any error, update state, save, and re-render
     if (durationError) durationError.textContent = '';
 
-    stopTimer(); // Stop any in-progress countdown before changing the duration
     configuredSeconds = parsed * 60;
-    remainingSeconds  = configuredSeconds;
-    remainingMilliseconds = configuredSeconds * 1000;
-
-    if (display) {
-      display.textContent = timerFormatTime(remainingSeconds);
-    }
-
-    // Hide done message if visible after a reset
-    hideTimerNotification();
+    setTimerMode('focus');
+    if (durationInput) durationInput.value = String(parsed);
 
     saveTimerDuration(); // Requirement 5.3
   }
@@ -1248,6 +1365,7 @@ if (typeof module !== 'undefined' && module.exports) {
     saveName, loadName, updateGreeting, initGreeting,
     initTheme, toggleTheme, validateDuration, startTimer, stopTimer, resetTimer,
     tick, handleTimerEnd, saveTimerDuration, loadTimerDuration, initTimer,
+    setTimerMode, startNextTimer, resetPomodoroCycle,
     validateTaskText, generateId, loadTasks, saveTasks, addTask, editTask,
     toggleTask, deleteTask, renderTasks, initTasks,
     validateLinkName, validateLinkUrl, loadLinks, saveLinks, addLink, deleteLink,
